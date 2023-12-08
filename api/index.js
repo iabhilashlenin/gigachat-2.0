@@ -87,6 +87,12 @@ app.post('/login', async (req,res) => {
         });
       });
     }
+    else{
+      res.status(400).json({error_message:'Invalid Password'})
+    }
+  }
+  else{
+    res.status(400).json({error_message:'User Not Found, Please Register below.'})
   }
 });
 
