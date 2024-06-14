@@ -30,6 +30,8 @@ export default function Chat() {
       }, 1000);
     });
   }
+
+  
   function showOnlinePeople(peopleArray) {
     const people = {};
     peopleArray.forEach(({ userId, username }) => {
@@ -212,3 +214,4 @@ export default function Chat() {
     </div>
   );
 }
+
