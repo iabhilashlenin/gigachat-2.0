@@ -28,24 +28,19 @@ app.use(cors({
   origin: process.env.CLIENT_URL,
 }));
 
-async function getUserDataFromRequest(req, res) {
+async function getUserDataFromRequest(req) {
   return new Promise((resolve, reject) => {
     const token = req.cookies?.token;
     if (token) {
       jwt.verify(token, jwtSecret, {}, (err, userData) => {
-        if (err) {
-          // Added error response for invalid token
-          res.status(401).json({error: 'Invalid token'}); // <-- Change
-          reject(err);
-        }
+        if (err) throw err;
         resolve(userData);
       });
     } else {
-      // Added error response for missing token
-      res.status(401).json({error: 'No token provided'}); // <-- Change
       reject('no token');
     }
   });
+
 }
 
 app.get('/test', (req,res) => {
@@ -53,21 +48,20 @@ app.get('/test', (req,res) => {
 });
 
 app.get('/messages/:userId', async (req,res) => {
-  try {
-    const {userId} = req.params;
-    const userData = await getUserDataFromRequest(req, res); // <-- Change
-    const ourUserId = userData.userId;
-    const messages = await Message.find({
-      sender:{$in:[userId,ourUserId]},
-      recipient:{$in:[userId,ourUserId]},
-    }).sort({createdAt: 1});
-    res.json(messages);
-  } catch (error) {
-    console.error('Error fetching messages:', error); // <-- Change
-    res.status(500).json({ error: 'An error occurred while fetching messages.' }); // <-- Change
-  }
+  const {userId} = req.params;
+  const userData = await getUserDataFromRequest(req);
+  const ourUserId = userData.userId;
+  const messages = await Message.find({
+    sender:{$in:[userId,ourUserId]},
+    recipient:{$in:[userId,ourUserId]},
+  }).sort({createdAt: 1});
+  res.json(messages);
 });
 
+// app.get('/people', async (req,res) => {
+//   const users = await User.find({}, {'_id':1,username:1});
+//   res.json(users);
+// });
 app.get('/people', async (req, res) => {
   console.log('Request received:', req.method, req.url);
   try {
@@ -79,15 +73,12 @@ app.get('/people', async (req, res) => {
   }
 });
 
+
 app.get('/profile', (req,res) => {
   const token = req.cookies?.token;
   if (token) {
     jwt.verify(token, jwtSecret, {}, (err, userData) => {
-      if (err) {
-        // Added error response for invalid token
-        res.status(401).json({ error: 'Invalid token' }); // <-- Change
-        return;
-      }
+      if (err) throw err;
       res.json(userData);
     });
   } else {
@@ -97,29 +88,22 @@ app.get('/profile', (req,res) => {
 
 app.post('/login', async (req,res) => {
   const {username, password} = req.body;
-  try {
-    const foundUser = await User.findOne({username});
-    if (foundUser) {
-      const passOk = bcrypt.compareSync(password, foundUser.password);
-      if (passOk) {
-        jwt.sign({userId:foundUser._id,username}, jwtSecret, {}, (err, token) => {
-          if (err) {
-            res.status(500).json({ error: 'Token generation failed' }); // <-- Change
-            return;
-          }
-          res.cookie('token', token, {sameSite:'none', secure:true}).json({
-            id: foundUser._id,
-          });
+  const foundUser = await User.findOne({username});
+  if (foundUser) {
+    const passOk = bcrypt.compareSync(password, foundUser.password);
+    if (passOk) {
+      jwt.sign({userId:foundUser._id,username}, jwtSecret, {}, (err, token) => {
+        res.cookie('token', token, {sameSite:'none', secure:true}).json({
+          id: foundUser._id,
         });
-      } else {
-        res.status(400).json({error_message:'Invalid Password'});
-      }
-    } else {
-      res.status(400).json({error_message:'User Not Found, Please Register below.'});
+      });
     }
-  } catch (error) {
-    console.error('Login error:', error); // <-- Change
-    res.status(500).json({ error: 'An error occurred during login.' }); // <-- Change
+    else{
+      res.status(400).json({error_message:'Invalid Password'})
+    }
+  }
+  else{
+    res.status(400).json({error_message:'User Not Found, Please Register below.'})
   }
 });
 
@@ -136,17 +120,14 @@ app.post('/register', async (req,res) => {
       password:hashedPassword,
     });
     jwt.sign({userId:createdUser._id,username}, jwtSecret, {}, (err, token) => {
-      if (err) {
-        res.status(500).json({ error: 'Token generation failed' }); // <-- Change
-        return;
-      }
+      if (err) throw err;
       res.cookie('token', token, {sameSite:'none', secure:true}).status(201).json({
         id: createdUser._id,
       });
     });
   } catch(err) {
-    console.error('Registration error:', err); // <-- Change
-    res.status(500).json('error'); // <-- Change
+    if (err) throw err;
+    res.status(500).json('error');
   }
 });
 
@@ -182,19 +163,15 @@ wss.on('connection', (connection, req) => {
     clearTimeout(connection.deathTimer);
   });
 
-  // read username and id from the cookie for this connection
+  // read username and id form the cookie for this connection
   const cookies = req.headers.cookie;
   if (cookies) {
-    const tokenCookieString = cookies.split(';').find(str => str.trim().startsWith('token='));
+    const tokenCookieString = cookies.split(';').find(str => str.startsWith('token='));
     if (tokenCookieString) {
       const token = tokenCookieString.split('=')[1];
       if (token) {
         jwt.verify(token, jwtSecret, {}, (err, userData) => {
-          if (err) {
-            console.error('Invalid token:', err); // <-- Change
-            connection.close(); // <-- Change
-            return;
-          }
+          if (err) throw err;
           const {userId, username} = userData;
           connection.userId = userId;
           connection.username = username;
@@ -204,41 +181,37 @@ wss.on('connection', (connection, req) => {
   }
 
   connection.on('message', async (message) => {
-    try {
-      const messageData = JSON.parse(message.toString());
-      const {recipient, text, file} = messageData;
-      let filename = null;
-      if (file) {
-        console.log('size', file.data.length);
-        const parts = file.name.split('.');
-        const ext = parts[parts.length - 1];
-        filename = Date.now() + '.' + ext;
-        const path = __dirname + '/uploads/' + filename;
-        const bufferData = Buffer.from(file.data.split(',')[1], 'base64');
-        fs.writeFile(path, bufferData, () => {
-          console.log('file saved:'+path);
-        });
-      }
-      if (recipient && (text || file)) {
-        const messageDoc = await Message.create({
+    const messageData = JSON.parse(message.toString());
+    const {recipient, text, file} = messageData;
+    let filename = null;
+    if (file) {
+      console.log('size', file.data.length);
+      const parts = file.name.split('.');
+      const ext = parts[parts.length - 1];
+      filename = Date.now() + '.'+ext;
+      const path = __dirname + '/uploads/' + filename;
+      const bufferData = new Buffer(file.data.split(',')[1], 'base64');
+      fs.writeFile(path, bufferData, () => {
+        console.log('file saved:'+path);
+      });
+    }
+    if (recipient && (text || file)) {
+      const messageDoc = await Message.create({
+        sender:connection.userId,
+        recipient,
+        text,
+        file: file ? filename : null,
+      });
+      console.log('created message');
+      [...wss.clients]
+        .filter(c => c.userId === recipient)
+        .forEach(c => c.send(JSON.stringify({
+          text,
           sender:connection.userId,
           recipient,
-          text,
           file: file ? filename : null,
-        });
-        console.log('created message');
-        [...wss.clients]
-          .filter(c => c.userId === recipient)
-          .forEach(c => c.send(JSON.stringify({
-            text,
-            sender:connection.userId,
-            recipient,
-            file: file ? filename : null,
-            _id:messageDoc._id,
-          })));
-      }
-    } catch (error) {
-      console.error('Error handling message:', error); // <-- Change
+          _id:messageDoc._id,
+        })));
     }
   });
 
