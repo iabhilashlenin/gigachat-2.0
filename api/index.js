@@ -58,10 +58,10 @@ app.get('/messages/:userId', async (req,res) => {
   res.json(messages);
 });
 
-app.get('/people', async (req,res) => {
-  const users = await User.find({}, {'_id':1,username:1});
-  res.json(users);
-});
+// app.get('/people', async (req,res) => {
+//   const users = await User.find({}, {'_id':1,username:1});
+//   res.json(users);
+// });
 // app.get('/people', async (req, res) => {
 //   console.log('Request received:', req.method, req.url);
 //   try {
