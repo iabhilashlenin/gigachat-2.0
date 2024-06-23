@@ -11,8 +11,10 @@ const ws = require('ws');
 const fs = require('fs');
 
 dotenv.config();
+mongoose.set('strictQuery', false);
 mongoose.connect(process.env.MONGO_URL, (err) => {
   if (err) throw err;
+  console.log("mongodb connected")
 });
 const jwtSecret = process.env.JWT_SECRET;
 const bcryptSalt = bcrypt.genSaltSync(10);
@@ -56,9 +58,17 @@ app.get('/messages/:userId', async (req,res) => {
   res.json(messages);
 });
 
-app.get('/people', async (req,res) => {
-  const users = await User.find({}, {'_id':1,username:1});
-  res.json(users);
+// app.get('/people', async (req,res) => {
+//   const users = await User.find({}, {'_id':1,username:1});
+//   res.json(users);
+// });
+app.get('/people', async (req, res) => {
+  try {
+    const users = await User.find({}, { '_id': 1, username: 1 });
+    res.json(users);
+  } catch (error) {
+    res.status(500).json({ error: 'An error occurred while fetching users.' });
+  }
 });
 
 app.get('/profile', (req,res) => {
@@ -85,6 +95,12 @@ app.post('/login', async (req,res) => {
         });
       });
     }
+    else{
+      res.status(400).json({error_message:'Invalid Password'})
+    }
+  }
+  else{
+    res.status(400).json({error_message:'User Not Found, Please Register below.'})
   }
 });
 
@@ -112,7 +128,9 @@ app.post('/register', async (req,res) => {
   }
 });
 
-const server = app.listen(4040);
+const server = app.listen(4040,()=>{
+  console.log("server started at port 4040")
+});
 
 const wss = new ws.WebSocketServer({server});
 wss.on('connection', (connection, req) => {
