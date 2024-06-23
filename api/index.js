@@ -8,14 +8,18 @@ const bcrypt = require('bcryptjs');
 const User = require('./models/User');
 const Message = require('./models/Message');
 const ws = require('ws');
-const fs = require('fs');
+const fs = require('fs').promises; // Using fs.promises for async file operations
 
 dotenv.config();
 mongoose.set('strictQuery', false);
-mongoose.connect(process.env.MONGO_URL, (err) => {
-  if (err) throw err;
-  console.log("mongodb connected")
-});
+mongoose.connect(process.env.MONGO_URL, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true,
+  useCreateIndex: true,
+})
+  .then(() => console.log("MongoDB connected"))
+  .catch(err => console.error("MongoDB connection error:", err));
+
 const jwtSecret = process.env.JWT_SECRET;
 const bcryptSalt = bcrypt.genSaltSync(10);
 
@@ -25,56 +29,10 @@ app.use(express.json());
 app.use(cookieParser());
 app.use(cors({
   credentials: true,
-  origin: process.env.CLIENT_URL
+  origin: process.env.CLIENT_URL,
 }));
 
-async function getUserDataFromRequest(req) {
-  return new Promise((resolve, reject) => {
-    const token = req.cookies?.token;
-    if (token) {
-      jwt.verify(token, jwtSecret, {}, (err, userData) => {
-        if (err) throw err;
-        resolve(userData);
-      });
-    } else {
-      reject('no token');
-    }
-  });
-
-}
-
-app.get('/test', (req,res) => {
-  res.json('test ok');
-});
-
-app.get('/messages/:userId', async (req,res) => {
-  const {userId} = req.params;
-  const userData = await getUserDataFromRequest(req);
-  const ourUserId = userData.userId;
-  const messages = await Message.find({
-    sender:{$in:[userId,ourUserId]},
-    recipient:{$in:[userId,ourUserId]},
-  }).sort({createdAt: 1});
-  res.json(messages);
-});
-
-// app.get('/people', async (req,res) => {
-//   const users = await User.find({}, {'_id':1,username:1});
-//   res.json(users);
-// });
-app.get('/people', async (req, res) => {
-  console.log('Request received:', req.method, req.url);
-  try {
-    const users = await User.find({}, { '_id': 1, username: 1 });
-    res.json(users);
-  } catch (error) {
-    console.error('Error fetching users:', error);
-    res.status(500).json({ error: 'An error occurred while fetching users.' });
-  }
-});
-
-
-// Define a middleware function for verifying JWT token
+// Middleware function to verify JWT token
 const verifyToken = (req, res, next) => {
   const token = req.cookies?.token;
   if (!token) {
@@ -90,68 +48,101 @@ const verifyToken = (req, res, next) => {
   });
 };
 
-// Use the middleware in your route handler
+// Route to test server status
+app.get('/test', (req, res) => {
+  res.json('Server test OK');
+});
+
+// Route to fetch messages between users
+app.get('/messages/:userId', verifyToken, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const userData = req.userData;
+    const ourUserId = userData.userId;
+    const messages = await Message.find({
+      sender: { $in: [userId, ourUserId] },
+      recipient: { $in: [userId, ourUserId] },
+    }).sort({ createdAt: 1 });
+    res.json(messages);
+  } catch (error) {
+    console.error('Error fetching messages:', error);
+    res.status(500).json({ error: 'An error occurred while fetching messages.' });
+  }
+});
+
+// Route to fetch users
+app.get('/people', async (req, res) => {
+  console.log('Request received:', req.method, req.url);
+  try {
+    const users = await User.find({}, { '_id': 1, username: 1 });
+    res.json(users);
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    res.status(500).json({ error: 'An error occurred while fetching users.' });
+  }
+});
+
+// Route to handle user profile retrieval
 app.get('/profile', verifyToken, (req, res) => {
   res.json(req.userData); // Access user data from request object
 });
 
-
-app.post('/login', async (req,res) => {
-  const {username, password} = req.body;
-  const foundUser = await User.findOne({username});
-  if (foundUser) {
+// Route to handle user login
+app.post('/login', async (req, res) => {
+  const { username, password } = req.body;
+  try {
+    const foundUser = await User.findOne({ username });
+    if (!foundUser) {
+      return res.status(400).json({ error_message: 'User Not Found, Please Register below.' });
+    }
     const passOk = bcrypt.compareSync(password, foundUser.password);
-    if (passOk) {
-      jwt.sign({userId:foundUser._id,username}, jwtSecret, {}, (err, token) => {
-        res.cookie('token', token, {sameSite:'none', secure:true}).json({
-          id: foundUser._id,
-        });
-      });
+    if (!passOk) {
+      return res.status(400).json({ error_message: 'Invalid Password' });
     }
-    else{
-      res.status(400).json({error_message:'Invalid Password'})
-    }
-  }
-  else{
-    res.status(400).json({error_message:'User Not Found, Please Register below.'})
+    const token = jwt.sign({ userId: foundUser._id, username }, jwtSecret, {});
+    res.cookie('token', token, { sameSite: 'none', secure: true }).json({
+      id: foundUser._id,
+    });
+  } catch (error) {
+    console.error('Error during login:', error);
+    res.status(500).json({ error: 'An error occurred during login.' });
   }
 });
 
-app.post('/logout', (req,res) => {
-  res.cookie('token', '', {sameSite:'none', secure:true}).json('ok');
+// Route to handle user logout
+app.post('/logout', (req, res) => {
+  res.clearCookie('token', { sameSite: 'none', secure: true }).json('ok');
 });
 
-app.post('/register', async (req,res) => {
-  const {username,password} = req.body;
+// Route to handle user registration
+app.post('/register', async (req, res) => {
+  const { username, password } = req.body;
   try {
     const hashedPassword = bcrypt.hashSync(password, bcryptSalt);
-    const createdUser = await User.create({
-      username:username,
-      password:hashedPassword,
+    const createdUser = await User.create({ username, password: hashedPassword });
+    const token = jwt.sign({ userId: createdUser._id, username }, jwtSecret, {});
+    res.cookie('token', token, { sameSite: 'none', secure: true }).status(201).json({
+      id: createdUser._id,
     });
-    jwt.sign({userId:createdUser._id,username}, jwtSecret, {}, (err, token) => {
-      if (err) throw err;
-      res.cookie('token', token, {sameSite:'none', secure:true}).status(201).json({
-        id: createdUser._id,
-      });
-    });
-  } catch(err) {
-    if (err) throw err;
-    res.status(500).json('error');
+  } catch (error) {
+    console.error('Error during registration:', error);
+    res.status(500).json({ error: 'An error occurred during registration.' });
   }
 });
 
-const server = app.listen(4040,()=>{
-  console.log("server started at port 4040")
+// Start the server and WebSocket server
+const server = app.listen(4040, () => {
+  console.log("Server started at port 4040");
 });
 
-const wss = new ws.WebSocketServer({server});
-wss.on('connection', (connection, req) => {
+const wss = new ws.WebSocketServer({ server });
 
+// WebSocket server logic
+wss.on('connection', (connection, req) => {
   function notifyAboutOnlinePeople() {
     [...wss.clients].forEach(client => {
       client.send(JSON.stringify({
-        online: [...wss.clients].map(c => ({userId:c.userId,username:c.username})),
+        online: [...wss.clients].map(c => ({ userId: c.userId, username: c.username })),
       }));
     });
   }
@@ -165,15 +156,11 @@ wss.on('connection', (connection, req) => {
       clearInterval(connection.timer);
       connection.terminate();
       notifyAboutOnlinePeople();
-      console.log('dead');
+      console.log('WebSocket connection terminated due to inactivity');
     }, 1000);
   }, 5000);
 
-  connection.on('pong', () => {
-    clearTimeout(connection.deathTimer);
-  });
-
-  // read username and id form the cookie for this connection
+  // Read username and id from the cookie for this connection
   const cookies = req.headers.cookie;
   if (cookies) {
     const tokenCookieString = cookies.split(';').find(str => str.startsWith('token='));
@@ -181,8 +168,12 @@ wss.on('connection', (connection, req) => {
       const token = tokenCookieString.split('=')[1];
       if (token) {
         jwt.verify(token, jwtSecret, {}, (err, userData) => {
-          if (err) throw err;
-          const {userId, username} = userData;
+          if (err) {
+            console.error('WebSocket JWT verification error:', err);
+            connection.close(); // Close WebSocket connection on JWT verification error
+            return;
+          }
+          const { userId, username } = userData;
           connection.userId = userId;
           connection.username = username;
         });
@@ -190,41 +181,45 @@ wss.on('connection', (connection, req) => {
     }
   }
 
+  // Handle incoming messages from WebSocket clients
   connection.on('message', async (message) => {
-    const messageData = JSON.parse(message.toString());
-    const {recipient, text, file} = messageData;
-    let filename = null;
-    if (file) {
-      console.log('size', file.data.length);
-      const parts = file.name.split('.');
-      const ext = parts[parts.length - 1];
-      filename = Date.now() + '.'+ext;
-      const path = __dirname + '/uploads/' + filename;
-      const bufferData = new Buffer(file.data.split(',')[1], 'base64');
-      fs.writeFile(path, bufferData, () => {
-        console.log('file saved:'+path);
-      });
-    }
-    if (recipient && (text || file)) {
-      const messageDoc = await Message.create({
-        sender:connection.userId,
-        recipient,
-        text,
-        file: file ? filename : null,
-      });
-      console.log('created message');
-      [...wss.clients]
-        .filter(c => c.userId === recipient)
-        .forEach(c => c.send(JSON.stringify({
-          text,
-          sender:connection.userId,
+    try {
+      const messageData = JSON.parse(message.toString());
+      const { recipient, text, file } = messageData;
+      let filename = null;
+      if (file) {
+        const parts = file.name.split('.');
+        const ext = parts[parts.length - 1];
+        filename = `${Date.now()}.${ext}`;
+        const path = __dirname + '/uploads/' + filename;
+        const bufferData = Buffer.from(file.data.split(',')[1], 'base64');
+        await fs.writeFile(path, bufferData);
+        console.log('File saved:', path);
+      }
+      if (recipient && (text || file)) {
+        const messageDoc = await Message.create({
+          sender: connection.userId,
           recipient,
+          text,
           file: file ? filename : null,
-          _id:messageDoc._id,
-        })));
+        });
+        console.log('Message created:', messageDoc);
+        [...wss.clients]
+          .filter(c => c.userId === recipient)
+          .forEach(c => c.send(JSON.stringify({
+            text,
+            sender: connection.userId,
+            recipient,
+            file: file ? filename : null,
+            _id: messageDoc._id,
+          })));
+      }
+    } catch (error) {
+      console.error('WebSocket message handling error:', error);
+      // Handle error as needed
     }
   });
 
-  // notify everyone about online people (when someone connects)
+  // Notify all clients about online users when a new connection is established
   notifyAboutOnlinePeople();
 });
