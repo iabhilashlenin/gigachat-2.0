@@ -62,16 +62,16 @@ app.get('/messages/:userId', async (req,res) => {
 //   const users = await User.find({}, {'_id':1,username:1});
 //   res.json(users);
 // });
-// app.get('/people', async (req, res) => {
-//   console.log('Request received:', req.method, req.url);
-//   try {
-//     const users = await User.find({}, { '_id': 1, username: 1 });
-//     res.json(users);
-//   } catch (error) {
-//     console.error('Error fetching users:', error);
-//     res.status(500).json({ error: 'An error occurred while fetching users.' });
-//   }
-// });
+app.get('/people', async (req, res) => {
+  console.log('Request received:', req.method, req.url);
+  try {
+    const users = await User.find({}, { '_id': 1, username: 1 });
+    res.json(users);
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    res.status(500).json({ error: 'An error occurred while fetching users.' });
+  }
+});
 
 
 app.get('/profile', (req,res) => {
