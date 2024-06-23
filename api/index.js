@@ -74,17 +74,27 @@ app.get('/people', async (req, res) => {
 });
 
 
-app.get('/profile', (req,res) => {
+// Define a middleware function for verifying JWT token
+const verifyToken = (req, res, next) => {
   const token = req.cookies?.token;
-  if (token) {
-    jwt.verify(token, jwtSecret, {}, (err, userData) => {
-      if (err) throw err;
-      res.json(userData);
-    });
-  } else {
-    res.status(401).json('no token');
+  if (!token) {
+    return res.status(401).json('No token');
   }
+  jwt.verify(token, jwtSecret, {}, (err, userData) => {
+    if (err) {
+      console.error('JWT verification error:', err);
+      return res.status(401).json('Invalid token');
+    }
+    req.userData = userData; // Attach user data to the request object
+    next(); // Proceed to the next middleware
+  });
+};
+
+// Use the middleware in your route handler
+app.get('/profile', verifyToken, (req, res) => {
+  res.json(req.userData); // Access user data from request object
 });
+
 
 app.post('/login', async (req,res) => {
   const {username, password} = req.body;
