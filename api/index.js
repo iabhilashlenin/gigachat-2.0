@@ -349,7 +349,8 @@ app.post('/register', async (req, res) => {
   }
 });
 
-const server = app.listen(4040, () => {
+const PORT = process.env.PORT || 4000;
+const server = app.listen(PORT, () => {
   console.log("Server started at port 4040");
 });
 
