@@ -244,8 +244,8 @@ app.use('/uploads', express.static(__dirname + '/uploads'));
 app.use(express.json());
 app.use(cookieParser());
 app.use(cors({
-  credentials: true,
   origin: process.env.CLIENT_URL,
+  credentials: true,
 }));
 
 async function getUserDataFromRequest(req) {
@@ -315,7 +315,7 @@ app.post('/login', async (req, res) => {
       if (passOk) {
         jwt.sign({ userId: foundUser._id, username }, jwtSecret, {}, (err, token) => {
           if (err) return res.status(500).json({ error: 'Failed to create token' });
-          res.cookie('token', token, { sameSite: 'none', secure: true }).json({ id: foundUser._id });
+          res.cookie('token', token, { httpOnly: true, sameSite: 'lax', secure: false }).json({ id: foundUser._id });
         });
       } else {
         res.status(400).json({ error_message: 'Invalid Password' });
@@ -328,6 +328,7 @@ app.post('/login', async (req, res) => {
   }
 });
 
+
 app.post('/logout', (req, res) => {
   res.cookie('token', '', { sameSite: 'none', secure: true }).json('ok');
 });
@@ -336,18 +337,16 @@ app.post('/register', async (req, res) => {
   try {
     const { username, password } = req.body;
     const hashedPassword = bcrypt.hashSync(password, bcryptSalt);
-    const createdUser = await User.create({
-      username,
-      password: hashedPassword,
-    });
+    const createdUser = await User.create({ username, password: hashedPassword });
     jwt.sign({ userId: createdUser._id, username }, jwtSecret, {}, (err, token) => {
       if (err) return res.status(500).json({ error: 'Failed to create token' });
-      res.cookie('token', token, { sameSite: 'none', secure: true }).status(201).json({ id: createdUser._id });
+      res.cookie('token', token, { httpOnly: true, sameSite: 'lax', secure: false }).status(201).json({ id: createdUser._id });
     });
   } catch (err) {
     res.status(500).json({ error: 'Registration failed' });
   }
 });
+
 
 const PORT = process.env.PORT || 4000;
 const server = app.listen(PORT, () => {
