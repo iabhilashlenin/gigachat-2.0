@@ -373,12 +373,14 @@ wss.on('connection', (connection, req) => {
       connection.terminate();
       notifyAboutOnlinePeople();
       console.log('Connection terminated');
-    }, 1000);
+    }, 5000); // Increase timeout to 5 seconds
   }, 5000);
 
   connection.on('pong', () => {
     clearTimeout(connection.deathTimer);
   });
+});
+
 
   // Read username and id from the cookie for this connection
   const cookies = req.headers.cookie;
