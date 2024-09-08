@@ -292,6 +292,7 @@ app.get('/people', async (req, res) => {
 
 app.get('/profile', async (req, res) => {
   try {
+    console.log('Cookies:', req.cookies); // Log the cookies to verify
     const token = req.cookies?.token;
     if (token) {
       jwt.verify(token, jwtSecret, (err, userData) => {
@@ -305,6 +306,7 @@ app.get('/profile', async (req, res) => {
     res.status(500).json({ error: 'Failed to get user profile' });
   }
 });
+
 
 app.post('/login', async (req, res) => {
   try {
