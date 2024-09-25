@@ -381,8 +381,6 @@ wss.on('connection', (connection, req) => {
   connection.on('pong', () => {
     clearTimeout(connection.deathTimer);
   });
-});
-
 
   // Read username and id from the cookie for this connection
   const cookies = req.headers.cookie;
